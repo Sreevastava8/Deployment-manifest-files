@@ -24,6 +24,10 @@ pipeline {
         ALB_SECURITY_GROUP_NAME = ''
 
         NAMESPACE           = 'shopsphere'
+
+        // NEW: SonarQube project
+        SONAR_PROJECT_KEY  = 'shopsphere-application'
+        SONAR_PROJECT_NAME = 'ShopSphere Application'
     }
 
     stages {
@@ -127,6 +131,14 @@ pipeline {
 
                     echo "==== Helm ===="
                     helm version --short
+
+                    # NEW: SonarQube Scanner
+                    echo "==== SonarQube Scanner ===="
+                    sonar-scanner --version
+
+                    # NEW: Trivy
+                    echo "==== Trivy ===="
+                    trivy --version
                 '''
             }
         }
@@ -187,6 +199,61 @@ pipeline {
                     npm ci
                     npm run build
                 '''
+            }
+        }
+
+        // ============================================================
+        // NEW: SONARQUBE CODE QUALITY / SECURITY ANALYSIS
+        // ============================================================
+
+        stage('SonarQube Code Scan') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh '''
+                        set -e
+
+                        echo "========================================"
+                        echo " Starting SonarQube Analysis"
+                        echo "========================================"
+
+                        sonar-scanner \
+                          -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
+                          -Dsonar.projectName="$SONAR_PROJECT_NAME" \
+                          -Dsonar.sources=application-scr \
+                          -Dsonar.exclusions="**/node_modules/**,**/target/**,**/.env*,**/*.lock" \
+                          -Dsonar.java.binaries="application-scr/services/product-service/target/classes,application-scr/services/user-service/target/classes,application-scr/services/order-service/target/classes,application-scr/services/payment-service/target/classes" \
+                          -Dsonar.sourceEncoding=UTF-8
+
+                        echo "========================================"
+                        echo " SonarQube Analysis Completed"
+                        echo "========================================"
+                    '''
+                }
+            }
+        }
+
+        // ============================================================
+        // NEW: SONARQUBE QUALITY GATE
+        // ============================================================
+
+        stage('SonarQube Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    script {
+                        def qualityGate = waitForQualityGate(
+                            abortPipeline: true
+                        )
+
+                        echo "SonarQube Quality Gate Status: ${qualityGate.status}"
+
+                        if (qualityGate.status != 'OK') {
+                            error(
+                                "SonarQube Quality Gate failed: " +
+                                "${qualityGate.status}"
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -261,6 +328,67 @@ EOF
                     docker build \
                         -t "$ECR_REPOSITORY_URL:frontend-$IMAGE_TAG" \
                         application-scr/frontend
+                '''
+            }
+        }
+
+        // ============================================================
+        // NEW: TRIVY CONTAINER IMAGE SECURITY SCAN
+        // ============================================================
+
+        stage('Trivy Image Scan') {
+            steps {
+                sh '''
+                    set -e
+
+                    echo "========================================"
+                    echo " Starting Trivy Image Security Scan"
+                    echo "========================================"
+
+                    echo "Scanning product-service..."
+                    trivy image \
+                        --exit-code 1 \
+                        --severity HIGH,CRITICAL \
+                        --ignore-unfixed \
+                        "$ECR_REPOSITORY_URL:product-service-$IMAGE_TAG"
+
+
+                    echo "Scanning user-service..."
+                    trivy image \
+                        --exit-code 1 \
+                        --severity HIGH,CRITICAL \
+                        --ignore-unfixed \
+                        "$ECR_REPOSITORY_URL:user-service-$IMAGE_TAG"
+
+
+                    echo "Scanning order-service..."
+                    trivy image \
+                        --exit-code 1 \
+                        --severity HIGH,CRITICAL \
+                        --ignore-unfixed \
+                        "$ECR_REPOSITORY_URL:order-service-$IMAGE_TAG"
+
+
+                    echo "Scanning payment-service..."
+                    trivy image \
+                        --exit-code 1 \
+                        --severity HIGH,CRITICAL \
+                        --ignore-unfixed \
+                        "$ECR_REPOSITORY_URL:payment-service-$IMAGE_TAG"
+
+
+                    echo "Scanning frontend..."
+                    trivy image \
+                        --exit-code 1 \
+                        --severity HIGH,CRITICAL \
+                        --ignore-unfixed \
+                        "$ECR_REPOSITORY_URL:frontend-$IMAGE_TAG"
+
+
+                    echo "========================================"
+                    echo " Trivy Scan Completed Successfully"
+                    echo " No HIGH/CRITICAL vulnerabilities found"
+                    echo "========================================"
                 '''
             }
         }
@@ -702,6 +830,10 @@ EOF
             EKS Cluster: ${env.EKS_CLUSTER}
             Namespace: ${env.NAMESPACE}
             ECR Repository: ${env.ECR_REPOSITORY_URL}
+
+            Security:
+            SonarQube Quality Gate: PASSED
+            Trivy Image Scan: PASSED
             """
         }
 
@@ -714,6 +846,11 @@ EOF
             Environment: ${env.DEPLOY_ENV}
 
             Check the failed Jenkins stage.
+
+            Possible security/quality failure:
+
+            - SonarQube Quality Gate
+            - Trivy HIGH/CRITICAL vulnerability scan
 
             Useful commands:
 
@@ -740,4 +877,4 @@ EOF
 }
 
 
-//pipeline ends
+// pipeline ends
