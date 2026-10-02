@@ -1,0 +1,106 @@
+version: "3.9"
+
+services:
+
+  # =========================
+  # Product Service
+  # =========================
+  product-service:
+    image: 992839646359.dkr.ecr.ap-south-1.amazonaws.com/dev-shopsphere:product-service-1.0
+    container_name: product-service
+    ports:
+      - "8081:8081"
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      USER_SERVICE_URL: http://user-service:8082
+    depends_on:
+      - user-service
+    restart: unless-stopped
+
+
+  # =========================
+  # User Service
+  # =========================
+  user-service:
+    image: 992839646359.dkr.ecr.ap-south-1.amazonaws.com/dev-shopsphere:user-service-1.0
+    container_name: user-service
+    ports:
+      - "8082:8082"
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+    restart: unless-stopped
+
+
+  # =========================
+  # Order Service
+  # =========================
+  order-service:
+    image: 992839646359.dkr.ecr.ap-south-1.amazonaws.com/dev-shopsphere:order-service-1.0
+    container_name: order-service
+    ports:
+      - "8083:8083"
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PRODUCT_SERVICE_URL: http://product-service:8081
+      USER_SERVICE_URL: http://user-service:8082
+    depends_on:
+      - product-service
+      - user-service
+    restart: unless-stopped
+
+
+  # =========================
+  # Payment Service
+  # =========================
+  payment-service:
+    image: 992839646359.dkr.ecr.ap-south-1.amazonaws.com/dev-shopsphere:payment-service-1.0
+    container_name: payment-service
+    ports:
+      - "8084:8084"
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      ORDER_SERVICE_URL: http://order-service:8083
+    depends_on:
+      - order-service
+    restart: unless-stopped
+
+
+  # =========================
+  # Frontend
+  # =========================
+  frontend:
+    image: 992839646359.dkr.ecr.ap-south-1.amazonaws.com/dev-shopsphere:frontend-1.0
+    container_name: frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - product-service
+      - user-service
+      - order-service
+      - payment-service
+    restart: unless-stopped
+
+
+# =========================
+# Network
+# =========================
+networks:
+  default:
+    name: shopsphere-network
